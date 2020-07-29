@@ -1,0 +1,6 @@
+[submodule "submodules/rapidjson"]
+	path = submodules/rapidjson
+	url = https://github.com/Tencent/rapidjson.git
+[submodule "submodules/simplews"]
+	path = submodules/simplews
+	url = https://gitlab.com/eidheim/Simple-WebSocket-Server.git
