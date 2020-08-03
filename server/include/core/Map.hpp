@@ -14,11 +14,11 @@ struct Surface{
 	}
 };
 struct ObjMap {
+	ObjMap(){}
 	ObjMap(const std::string& filename);
 	void loadFromFile(const std::string& filename);
 	uint32_t addSurface(const Surface& wall);
 	Rect<float> bbox;
 	std::vector<Surface> surfaces;
-	std::mt19937 rng;
 };
 #endif

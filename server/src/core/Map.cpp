@@ -8,7 +8,6 @@
 #include <iostream>
 #endif
 ObjMap::ObjMap(const std::string& filename){
-	this->rng = SeedRNG();
 	this->loadFromFile(filename);
 }
 void ObjMap::loadFromFile(const std::string& filename){

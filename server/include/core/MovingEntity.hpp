@@ -15,8 +15,8 @@ public:
 	Rect<float> hitbox = {};
 public:
 	MovingEntity() = default;
-	MovingEntity(float x, float y, std::shared_ptr<ObjMap>& map);
-	MovingEntity(float x, float y, int w, int h, std::shared_ptr<ObjMap>& map);
+	MovingEntity(float x, float y, ObjMap* map);
+	MovingEntity(float x, float y, int w, int h, ObjMap* map);
 	void Update(float dt);
 	void warpto(float x, float y);
 protected:
@@ -28,7 +28,7 @@ protected:
 	bool dropFromOneWay = false;
 	glm::vec2 m_lastSpeed = {0.f, 0.f};
 	glm::vec2 m_lastPosition = {0.f, 0.f};
-	std::shared_ptr<ObjMap> m_map;
+	ObjMap* m_map = nullptr;
 	Rect<float> lastHitbox = {};
 };
 

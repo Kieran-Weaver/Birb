@@ -1,4 +1,5 @@
 #include <goose/Player.hpp>
+#include <goose/JSONWriter.hpp>
 Rect<float> Player::getHitbox(){
 	const std::lock_guard<std::mutex> lock(*(this->mtx));
 	Rect<float> hitbox = this->entity.hitbox;
@@ -15,7 +16,7 @@ Rect<float> Player::getAtkHitbox(){
 	}
 	return hitbox;
 }
-void Player::Render(rapidjson::Writer<rapidjson::StringBuffer>& writer){
+void Player::Render(JSONWriter& writer){
 	const std::lock_guard<std::mutex> lock(*(this->mtx));
 	writer.Key("x");
 	writer.Int(this->entity.m_position.x - 16);

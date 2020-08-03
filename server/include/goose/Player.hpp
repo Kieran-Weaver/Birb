@@ -2,16 +2,15 @@
 #define PLAYER_HPP
 #include <core/MovingEntity.hpp>
 #include <core/Timer.hpp>
-#include <rapidjson/stringbuffer.h>
-#include <rapidjson/writer.h>
+#include <goose/JSONWriter.hpp>
 #include <mutex>
 struct Player{
 	Player() = default;
 	Player(const Player& other) = default;
-	Player(int x, int y, std::shared_ptr<ObjMap>& map) : entity(x, y, 32, 32, map){}
+	Player(int x, int y, ObjMap* map) : entity(x, y, 32, 32, map){}
 	Rect<float> getHitbox();
 	Rect<float> getAtkHitbox();
-	void Render(rapidjson::Writer<rapidjson::StringBuffer>& writer);
+	void Render(JSONWriter& writer);
 	MovingEntity entity;
 	std::string name = "";
 	int direction = 1;

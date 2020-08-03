@@ -2,36 +2,17 @@
 #include <core/Map.hpp>
 #include <core/MovingEntity.hpp>
 #include <goose/Player.hpp>
-#include <rapidjson/stringbuffer.h>
-#include <rapidjson/writer.h>
-#include <rapidjson/document.h>
-#include <rapidjson/istreamwrapper.h>
+#include <goose/Food.hpp>
+#include <goose/GameState.hpp>
+#include <goose/JSONWriter.hpp>
+#include <util/Helpers.hpp>
+#include <util/PRNG.hpp>
 #include <thread>
 #include <mutex>
 #include <chrono>
-#include <util/PRNG.hpp>
 #include <string>
 #include <fstream>
 #include <algorithm>
-
-std::mt19937 rng = SeedRNG();
-std::uniform_int_distribution<int> xdist(0, 3992);
-std::uniform_int_distribution<int> ydist(0, 2992);
-
-using WsServer = SimpleWeb::SocketServer<SimpleWeb::WS>;
-
-using namespace rapidjson;
-Document document;
-
-std::mutex mtx;
-struct Food{
-	Food(float x, float y) : hitbox(x, y, 8.f, 8.f){}
-	Rect<float> hitbox;
-	float replenish = 1.f;
-};
-
-using PlayerMap = std::unordered_map<std::shared_ptr<WsServer::Connection>, Player>;
-using FoodList = std::vector<Food>;
 
 template<typename Container>
 void split(const std::string& total, const char delim, Container& c){
@@ -55,22 +36,21 @@ void logErrorCode(const SimpleWeb::error_code& ec){
 	}
 }
 
-void writePlayers(std::shared_ptr<PlayerMap> players, std::shared_ptr<FoodList> food, std::shared_ptr<std::string> data, std::shared_ptr<WsServer> server){
-	rapidjson::StringBuffer s;
-	rapidjson::Writer<rapidjson::StringBuffer> writer(s);
+void writePlayers(std::shared_ptr<GameState> state){
+	JSONWriter writer;
 	writer.StartObject();
 	writer.Key("p");
 	writer.StartObject();	
-	const std::lock_guard<std::mutex> lock(mtx);
+	const std::lock_guard<std::mutex> lock(state->mtx);
 	std::vector<std::shared_ptr<WsServer::Connection>> todelete;
-	const Value& types = document["types"];
-	for (auto& p : *players){
+	
+	for (auto& p : state->players){
 		auto& player = p.second;
-		const Value& type = types[player.type];
+		const Type& type = state->types[player.type];
 		{
 			std::lock_guard<std::mutex> lock(*(player.mtx));
-			player.entity.m_width = type["w"].GetInt();
-			player.entity.m_height = type["h"].GetInt();
+			player.entity.m_width = type.width;
+			player.entity.m_height = type.height;
 			player.entity.Update(15.f/1000.f);
 			player.attackTimer();
 		}
@@ -104,14 +84,14 @@ void writePlayers(std::shared_ptr<PlayerMap> players, std::shared_ptr<FoodList> 
 						writer.EndArray();						
 					} else if (hitbox.Intersects(shop2) and player.type != 21) {
 					} else {
-						for (auto& p2 : *players){
+						for (auto& p2 : state->players){
 							auto& otherPlayer = p2.second;
 							std::lock_guard<std::mutex> lock(*(otherPlayer.mtx));
-							const auto& ptype = types[otherPlayer.type];
-							if (otherPlayer.entity.hitbox.Intersects(atkbox) and otherPlayer.type != 21 and player.type != 21){
+							const auto& ptype = state->types[otherPlayer.type];
+							if (otherPlayer.entity.hitbox.Intersects(atkbox) && otherPlayer.type != 21 && player.type != 21){
 								player.totalattack++;
 								player.ap++;
-								float tochange = ((float)type["a"].GetInt())/5.f-((float)ptype["d"].GetInt())/10.f;
+								float tochange = type.atk/5.f-ptype.def/10.f;
 								otherPlayer.health -= std::max(tochange, 1.f);
 								if (otherPlayer.health <= 0.f)
 									player.totalkill++;
@@ -121,20 +101,20 @@ void writePlayers(std::shared_ptr<PlayerMap> players, std::shared_ptr<FoodList> 
 					}
 				}				
 				int addcount = 0;
-				for (auto f = food->begin(); f != food->end();){
+				for (auto f = state->food.begin(); f != state->food.end();){
 					if (f->hitbox.Intersects(hitbox) and player.type != 21){
 						{
 							std::lock_guard<std::mutex> lock(*(player.mtx));
 							player.health = std::min(player.maxHealth,player.health + f->replenish);
 						}
-						f = food->erase(f);
+						f = state->food.erase(f);
 						addcount++;
 					}else{
 						f++;
 					}
 				}
 				for (int i = 0; i < addcount; i++){
-					food->emplace_back(xdist(rng), ydist(rng));
+					state->food.emplace_back(state->xdist(state->rng), state->ydist(state->rng));
 				}
 				player.Render(writer);
 				writer.EndObject();
@@ -142,21 +122,21 @@ void writePlayers(std::shared_ptr<PlayerMap> players, std::shared_ptr<FoodList> 
 		}
 	}
 	
-	const auto& conns = server->get_connections();
-	for (auto& conn : *players){
+	const auto& conns = state->server.get_connections();
+	for (auto& conn : state->players){
 		if (conns.count(conn.first) == 0){
 			todelete.emplace_back(conn.first);
 		}
 	}
 	for (auto& conn : todelete){
-		if (players->count(conn)){
-			players->erase(conn);
+		if (state->players.count(conn)){
+			state->players.erase(conn);
 		}
 	}
 	writer.EndObject();
 	writer.Key("f");
 	writer.StartArray();
-	for (auto& f : *food) {
+	for (auto& f : state->food) {
 		writer.StartObject();
 		writer.Key("r");
 		writer.Int(f.replenish);
@@ -168,14 +148,14 @@ void writePlayers(std::shared_ptr<PlayerMap> players, std::shared_ptr<FoodList> 
 	}
 	writer.EndArray();
 	writer.EndObject();
-	*data = s.GetString();
+	state->wsdata = writer.get();
 }
 
-void physicsThread(std::shared_ptr<PlayerMap> players, std::shared_ptr<FoodList> food, std::shared_ptr<std::string> data, std::shared_ptr<WsServer> server){
+void physicsThread(std::shared_ptr<GameState> state){
 	std::this_thread::sleep_for(std::chrono::milliseconds(15));
 	while (true){
 		const auto& start = std::chrono::high_resolution_clock::now();
-		writePlayers(players, food, data, server);
+		writePlayers(state);
 		std::this_thread::sleep_until(start + std::chrono::milliseconds(15));
 	}
 }
@@ -186,75 +166,68 @@ int main(int argc, char** argv){
 	}
 	uint32_t xspawn = 2000;
 	uint32_t yspawn = 1500;
-	std::shared_ptr<WsServer> server = std::make_shared<WsServer>();
-	server->config.address = std::string(argv[1]);
-	server->config.port = std::stoul(argv[2]);
-	auto& goosegame = server->endpoint["^/.*/?$"];
-	std::shared_ptr<PlayerMap> players = std::make_shared<PlayerMap>();
-	std::shared_ptr<FoodList> food = std::make_shared<FoodList>();
+	std::shared_ptr<GameState> state = std::make_shared<GameState>("resources/types.json", "resources/map.json");
+	state->server.config.address = std::string(argv[1]);
+	state->server.config.port = std::stoul(argv[2]);
+	auto& goosegame = state->server.endpoint["^/.*/?$"];
 	for (int i = 0; i < 50; i++)
-		food->emplace_back(xdist(rng), ydist(rng));
-	std::shared_ptr<ObjMap> smap = std::make_shared<ObjMap>("resources/map.json");
-	std::ifstream ifs("resources/types.json");
-	IStreamWrapper isw(ifs);
-	document.ParseStream(isw);
-	std::shared_ptr<std::string> data = std::make_shared<std::string>();
-	std::thread phyThread(physicsThread, players, food, data, server);
+		state->food.emplace_back(state->xdist(state->rng), state->ydist(state->rng));
+	std::thread phyThread(physicsThread, state);
 	phyThread.detach();
-	goosegame.on_open = [&](std::shared_ptr<WsServer::Connection> connection){
-		std::lock_guard<std::mutex> lock(mtx);
-		(*players)[connection] = Player(xspawn, yspawn, smap);
-		(*players)[connection].entity.m_speed = {0.f, 0.f};
+	goosegame.on_open = [=](std::shared_ptr<WsServer::Connection> connection){
+		std::lock_guard<std::mutex> lock(state->mtx);
+		state->players[connection] = Player(xspawn, yspawn, &(state->internalMap));
+		state->players[connection].entity.m_speed = {0.f, 0.f};
 	};
-	goosegame.on_close = [&players, &smap](std::shared_ptr<WsServer::Connection> connection, int status, const std::string& reason){
-		std::lock_guard<std::mutex> lock(mtx);
-		if (players->count(connection)){
-			players->erase(connection);
+	goosegame.on_close = [=](std::shared_ptr<WsServer::Connection> connection, int status, const std::string& reason){
+		std::lock_guard<std::mutex> lock(state->mtx);
+		if (state->players.count(connection)){
+			state->players.erase(connection);
 		}
 	};
-	goosegame.on_message = [&](std::shared_ptr<WsServer::Connection> connection, std::shared_ptr<WsServer::InMessage> in_message){
+	goosegame.on_message = [=](std::shared_ptr<WsServer::Connection> connection, std::shared_ptr<WsServer::InMessage> in_message){
 		std::vector<std::string> splitvec;
 		split(in_message->string(),',', splitvec);
 		{
-			std::lock_guard<std::mutex> guard(mtx);
-			if ((!players->count(connection))||(players->at(connection).health <= 0.f)){
+			std::lock_guard<std::mutex> guard(state->mtx);
+			if ((!state->players.count(connection))||(state->players.at(connection).health <= 0.f)){
 				connection->send_close(1000);
 				return;
 			}
 		}
 		if (splitvec[0] == "n") {
-			std::lock_guard<std::mutex> guard(*(players->at(connection).mtx));
-			if (players->at(connection).name == ""){
-				for (auto& conn : *players){
+			std::lock_guard<std::mutex> guard(*(state->players.at(connection).mtx));
+			if (state->players.at(connection).name == ""){
+				for (auto& conn : state->players){
 					if (conn.second.name == splitvec[1]){
 						connection->send("no", logErrorCode);
 						return;
 					}
 				}
-				players->at(connection).name = splitvec[1];
-				players->at(connection).entity.m_position = {xspawn, yspawn};
-				players->at(connection).entity.m_speed = {0.f, 0.f};
+				state->players.at(connection).name = splitvec[1];
+				state->players.at(connection).entity.m_position = {xspawn, yspawn};
+				state->players.at(connection).entity.m_speed = {0.f, 0.f};
 				connection->send("ok", logErrorCode);
 			}else{
-				const Value& types = document["types"];
+				
 				int typex = std::stoul(splitvec[2]);
-				if (std::find(players->at(connection).unlocked.begin(), players->at(connection).unlocked.end(), typex) == players->at(connection).unlocked.end()){
-					const Value& type = types[typex];
-					int cost = type["c"].GetInt();
-					if (cost > players->at(connection).ap){
+				if (std::find(state->players.at(connection).unlocked.begin(), state->players.at(connection).unlocked.end(), typex) == state->players.at(connection).unlocked.end()){
+					const Type& type = state->types[typex];
+					int cost = type.cost;
+					if (cost > state->players.at(connection).ap){
 						connection->send("no", logErrorCode);
 						return;
 					}
-					players->at(connection).ap -= cost;
-					players->at(connection).unlocked.push_back(typex);
+					state->players.at(connection).ap -= cost;
+					state->players.at(connection).unlocked.push_back(typex);
 				}else{
-					const Value& type = types[typex];
-					players->at(connection).entity.m_width = type["w"].GetInt();
-					players->at(connection).entity.m_height = type["h"].GetInt();
-					players->at(connection).entity.m_position = {xspawn, yspawn};
-					players->at(connection).type = typex;
-					players->at(connection).entity.m_speed = {0.f, 0.f};
-					players->at(connection).entity.Update(15.f/1000.f);
+					const Type& type = state->types[typex];
+					state->players.at(connection).entity.m_width = type.width;
+					state->players.at(connection).entity.m_height = type.height;
+					state->players.at(connection).entity.m_position = {xspawn, yspawn};
+					state->players.at(connection).type = typex;
+					state->players.at(connection).entity.m_speed = {0.f, 0.f};
+					state->players.at(connection).entity.Update(15.f/1000.f);
 				}
 				connection->send("ok", logErrorCode);
 			}
@@ -263,63 +236,63 @@ int main(int argc, char** argv){
 			for (int i = 1; i < splitvec.size(); i++){
 				keystates.emplace_back(std::stoul(splitvec[i]));
 			}
-			std::lock_guard<std::mutex> guard(*(players->at(connection).mtx));
-			const Value& types = document["types"];
-			const Value& type = types[players->at(connection).type];
-			float pspeed = ((float)type["s"].GetInt()) * 30.f;
-			players->at(connection).entity.m_speed = { (keystates[3] - keystates[2]) * pspeed, (keystates[0] - keystates[1]) * pspeed};
-			if (!players->at(connection).attackTimer.getTime()){
-				if ((keystates[4]) && (!players->at(connection).attackTimer.getDelay())){
-					players->at(connection).state = -1;
-					players->at(connection).attacked = false;
-					players->at(connection).attackTimer.setTime(6);
-					players->at(connection).attackTimer.setDelay(24);
+			std::lock_guard<std::mutex> guard(*(state->players.at(connection).mtx));
+			
+			const Type& type = state->types[state->players.at(connection).type];
+			float pspeed = type.spd * 30.f;
+			state->players.at(connection).entity.m_speed = { (keystates[3] - keystates[2]) * pspeed, (keystates[0] - keystates[1]) * pspeed};
+			if (!state->players.at(connection).attackTimer.getTime()){
+				if ((keystates[4]) && (!state->players.at(connection).attackTimer.getDelay())){
+					state->players.at(connection).state = -1;
+					state->players.at(connection).attacked = false;
+					state->players.at(connection).attackTimer.setTime(6);
+					state->players.at(connection).attackTimer.setDelay(24);
 				} else {
-					players->at(connection).state = 1;
+					state->players.at(connection).state = 1;
 				}
 			}
-			if (std::fabs(players->at(connection).entity.m_speed.y) > std::fabs(players->at(connection).entity.m_speed.x)){
+			if (std::fabs(state->players.at(connection).entity.m_speed.y) > std::fabs(state->players.at(connection).entity.m_speed.x)){
 				switch (keystates[0] - keystates[1]){
 					case 1: // Down
-						players->at(connection).direction = 2;
+						state->players.at(connection).direction = 2;
 						break;
 					case -1: // Up
-						players->at(connection).direction = 0;
+						state->players.at(connection).direction = 0;
 						break;
 					default:break;
 				}
 				switch (keystates[3] - keystates[2]){
 					case 1: // right
-						players->at(connection).direction = 1;
+						state->players.at(connection).direction = 1;
 						break;
 					case -1: // left
-						players->at(connection).direction = 3; 
+						state->players.at(connection).direction = 3; 
 						break;
 					default:break;
 				}
 			} else {
 				switch (keystates[3] - keystates[2]){
 					case 1: // right
-						players->at(connection).direction = 1;
+						state->players.at(connection).direction = 1;
 						break;
 					case -1: // left
-						players->at(connection).direction = 3;
+						state->players.at(connection).direction = 3;
 						break;
 					default:break;
 				}
 				switch (keystates[0] - keystates[1]){
 					case 1: // Down
-						players->at(connection).direction = 2;
+						state->players.at(connection).direction = 2;
 						break;
 					case -1: // Up
-						players->at(connection).direction = 0;
+						state->players.at(connection).direction = 0;
 						break;
 					default:break;
 				}
 			}
-			connection->send(*data, logErrorCode);
+			connection->send(state->wsdata, logErrorCode);
 		}
 	};
-	server->start();
+	state->server.start();
 	return 0;
 }

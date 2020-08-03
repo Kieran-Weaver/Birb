@@ -1,7 +1,7 @@
 #include <core/MovingEntity.hpp>
 #include <cassert>
-MovingEntity::MovingEntity(float x, float y, std::shared_ptr<ObjMap>& map): MovingEntity(x,y,0,0,map){}
-MovingEntity::MovingEntity(float x, float y, int w, int h, std::shared_ptr<ObjMap>& map):
+MovingEntity::MovingEntity(float x, float y, ObjMap* map): MovingEntity(x,y,0,0,map){}
+MovingEntity::MovingEntity(float x, float y, int w, int h, ObjMap* map):
 	m_position(x, y), m_width(w), m_height(h), m_lastPosition(x, y), m_map(map)
 {
 	this->hitbox = {m_position.x - m_width/2.f, m_position.y - m_height/2.f, static_cast<float>(m_width), static_cast<float>(m_height)};
@@ -17,7 +17,7 @@ void MovingEntity::warpto(float x, float y){
 void MovingEntity::Update(float dt) {
 // Save current touching info
 	assert(m_map);
-	ObjMap& map_ref = *m_map.get(); 
+	ObjMap& map_ref = *m_map; 
 	this->m_lastPosition = this->m_position;
 	this->m_lastSpeed = this->m_speed;
 	this->pushedLeftWall = this->pushesLeftWall;
