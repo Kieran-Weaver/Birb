@@ -40,7 +40,8 @@ void Player::Render(JSONWriter& writer){
 	writer.Int(this->totalkill);
 	writer.Key("u");
 	writer.StartArray();
-    for (int i : this->unlocked)
+    for (int i : this->unlocked){
 		writer.Int(i);
+	}
 	writer.EndArray();
 }

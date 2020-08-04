@@ -14,14 +14,14 @@ void ObjMap::loadFromFile(const std::string& filename){
 	std::string jsondata = readWholeFile(filename);
 	rapidjson::Document document;
 	rapidjson::ParseResult result = document.Parse(jsondata.c_str());
-	if (!result) {
+	if (result == nullptr) {
 #ifndef NDEBUG
 		std::cerr << "ERROR: Invalid JSON file " << filename << std::endl; 
 #endif
 		std::exit(1);
 	}
 	const rapidjson::Value& surfacesNode = document["surfaces"];
-	for (auto& surfaceNode : surfacesNode.GetArray()){
+	for (const auto& surfaceNode : surfacesNode.GetArray()){
 		Surface s;
 		s.hitbox = {surfaceNode["x"].GetFloat(),surfaceNode["y"].GetFloat(),surfaceNode["w"].GetFloat(),surfaceNode["h"].GetFloat()};
 		s.flags = surfaceNode["f"].GetInt() & 0x1F;

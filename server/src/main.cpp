@@ -1,12 +1,8 @@
-#include <simplews/server_ws.hpp>
 #include <core/Map.hpp>
-#include <core/MovingEntity.hpp>
 #include <goose/Player.hpp>
 #include <goose/Food.hpp>
 #include <goose/GameState.hpp>
 #include <goose/JSONWriter.hpp>
-#include <util/Helpers.hpp>
-#include <util/PRNG.hpp>
 #include <thread>
 #include <mutex>
 #include <chrono>
@@ -47,14 +43,16 @@ void writePlayers(std::shared_ptr<GameState> state){
 	for (auto& p : state->players){
 		auto& player = p.second;
 		const Type& type = state->types[player.type];
+		std::string name;
 		{
 			std::lock_guard<std::mutex> lock(*(player.mtx));
 			player.entity.m_width = type.width;
 			player.entity.m_height = type.height;
 			player.entity.Update(15.f/1000.f);
 			player.attackTimer();
+			name = player.name;
 		}
-		if (!player.name.empty()){
+		if (!name.empty()){
 			if (player.health <= 0.f){
 				p.first->send_close(1000);
 				todelete.emplace_back(p.first);

@@ -14,7 +14,7 @@ struct Surface{
 	}
 };
 struct ObjMap {
-	ObjMap(){}
+	ObjMap() = default;
 	ObjMap(const std::string& filename);
 	void loadFromFile(const std::string& filename);
 	uint32_t addSurface(const Surface& wall);

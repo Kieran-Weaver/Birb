@@ -12,10 +12,10 @@ public:
 		}
 		return ((m_pause_for == 0)&&(m_time_left == 0));
 	}
-	int getDelay(){
+	int getDelay() const{
 		return m_pause_for;
 	}
-	int getTime(){
+	int getTime() const{
 		return m_time_left;
 	}
 	void setTime(int time){
